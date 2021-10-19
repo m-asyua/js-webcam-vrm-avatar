@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8">
+
+	<script src="face-api.js"></script>
+
+	<script src="js/faceDetectionControls.js"></script>
+	<script src="js/jquery-2.1.1.min.js"></script>
+	<script src="js/materialize.min.js"></script>
+
+	<script src="js/three.js"></script>
+	<script src="js/GLTFLoader.js"></script>
+	<script src="js/OrbitControls.js"></script>
+	<script src="./lib/three-vrm.js"></script>
+
+</head>
+
+
+
+<body>
+
+<input id="show_id" type="button" value="<" ><br>
+
+<!-- character -->
+<center><div id="canvas-frame"   ></div></center>
+
+
+<div id="control_panel" style="position: absolute; top: 50px; ">
+VRM avatar test<br>
+	<input id="start" type="button" value=" push to start camera ">
+
+	<form>
+		character VRM
+		<input id="read_file_vrm0" type="file" /><br>
+	</form>
+
+	camera <br>
+	near <input id="camera_range_set" type="range" value="0" min="-1" max="5" step="0.05"  >far 
+	<br>
+	color
+	<input name="bgcolor" type="radio" value="white" checked >white
+	<input name="bgcolor" type="radio" value="blue"  >blue
+	<input name="bgcolor" type="radio" value="green" >green <br>
+	<br>
+
+
+	<!-- video and landmarks -->
+
+	<video  id="inputVideo" style="position: absolute; top: 220px;  left: 10px;" width="320"   onloadedmetadata="onPlay(this)" autoplay muted playsinline></video>
+	<canvas id="overlay"    style="position: absolute; top: 220px;  left: 10px;" ></canvas>
+	<div id="vrm_information" style="position: absolute; top: 420px;  left: 5px;" >information</div>
+
+</div>
+
+
+
+
+
+
+<script>
+
+	const model_url          =    './models/1_sennin.vrm';            //  character file
+
+	const camera_position_z  =  0.85;
+
+	let characters_position = [ 
+		[0, 0.80, -0.6]
+	];
+
+	let characters_rotation = [ 
+		[0, 3.14,     0]
+	];
+
+	let current_vrm;
+	let scene;
+	let renderer;
+	let camera;
+
+	let character_load_flg   =  -1;
+
+
+
+window.onload = function() {
+	let  character_url  =  model_url;
+	init(character_url);
+	let v = camera_position_z;
+	camera_distance_set(v);
+	document.getElementById('camera_range_set').value = v;
+};
+
+
+
+
+document.getElementById('show_id').addEventListener('click', ()=>{
+
+	let ctl = document.getElementById('control_panel').style.visibility;
+//console.log(   ctl     );
+
+	if(ctl  == "hidden"){
+		document.getElementById('control_panel').style.visibility = "visible";
+		document.getElementById('show_id').value = "<";
+	}
+
+	if(ctl == "visible"){
+		document.getElementById('control_panel').style.visibility = "hidden";
+		document.getElementById('show_id').value = ">";
+	}
+
+
+	if(ctl == "" ){
+		document.getElementById('control_panel').style.visibility  = "hidden";
+		document.getElementById('show_id').value = ">";
+	}
+
+
+
+});
+
+
+
+
+
+
+document.getElementById('start').addEventListener('click', ()=>{
+	run();
+});
+
+document.getElementById('camera_range_set').addEventListener('change', ()=> {
+	camera_distance_set(document.getElementById('camera_range_set').value);
+});
+
+document.getElementsByName("bgcolor").forEach( r => r.addEventListener("change" , () =>  {
+	let bc = document.getElementsByName('bgcolor');
+		for(var i = 0; i <bc.length; i++){
+			if(bc[i].checked){
+				if(bc[i].value=="white"){	document.body.style.backgroundColor = "#ffffff"; 	renderer.setClearColor(0xffffff); }
+				if(bc[i].value=="green"){	document.body.style.backgroundColor = "#00ff00"; 	renderer.setClearColor(0x00ff00); }
+				if(bc[i].value=="blue" ){	document.body.style.backgroundColor = "#0000ff"; 	renderer.setClearColor(0x0000ff); }
+			}
+		}
+		renderer.render(scene, camera);
+	})
+)
+
+
+
+window.addEventListener('DOMContentLoaded', ()=> {
+	document.getElementById('read_file_vrm0').addEventListener('change', ()=>{
+		read_vrm_file_api(0, document.getElementById('read_file_vrm0').files[0] );
+	},
+	true);
+});
+
+
+function character_load_flg_change(num){
+	character_load_flg   =  num;
+}
+
+
+function character_load_flg_check(){
+	return character_load_flg;
+}
+
+
+function read_vrm_file_api(number,input){
+
+	let reader = new FileReader();
+	
+	reader.addEventListener('load', function() {
+
+		// delete character
+		let old_vrm   =  current_vrm;
+
+		if(typeof old_vrm === "undefined"){
+		}else{
+			scene.remove(old_vrm.scene);
+		}
+
+		let vrm_file_content = reader.result;
+
+		character_load_flg_change(-1);
+		vrm_model_load(number,  vrm_file_content,   0,    3, 0  );
+		vrm_anime_check_change(character_change_sub , number );
+
+	}, true)
+
+	reader.readAsDataURL(input);
+
+}
+
+
+
+function vrm_model_load(character_id, vrm_file_name, x,y,z){
+
+	my_loader = new THREE.GLTFLoader();
+	my_loader.crossOrigin = 'anonymous';
+
+	my_loader.load(  vrm_file_name,  ( gltf ) => {
+
+		THREE.VRMUtils.removeUnnecessaryJoints( gltf.scene );
+
+			THREE.VRM.from( gltf ).then( ( vrm ) => {
+
+				character_load_flg_change(0);
+				scene.add( vrm.scene );
+				hand_set( vrm );
+
+				current_vrm  =   vrm;
+				show_info();
+
+				setInterval(blink_on, 2000 + (Math.random() * 4000), vrm);
+				setInterval(blink_on, 4000 + (Math.random() * 8000), vrm);
+
+			} );
+		},
+		( progress ) => {
+			let percent = ( progress.loaded / progress.total ) *100 ;
+console.log("Loading model..."+vrm_file_name+","+percent+"%" );
+		},
+			( error ) => console.error( error )
+	);
+}
+
+
+
+function vrm_anime_check_change(callback,number){
+
+	if(character_load_flg_check() == -1){
+		setTimeout(vrm_anime_check_change, 700, callback,number);
+	}else{
+//console.log("check_change");
+		callback(number);
+	}
+}
+
+
+
+function camera_distance_set(d){
+	camera.position.set( 0.0, 1.5, d );
+}
+
+
+function show_info(){
+	let info = "title:"+current_vrm.meta.title+"<br>"+
+	"version:"+current_vrm.meta.version+"<br>"+
+	"author:"+current_vrm.meta.author+"<br>"+
+	"allowedUserName:"+current_vrm.meta.allowedUserName+"<br>"+
+	"commercialUssageName:"+current_vrm.meta.commercialUssageName+"<br>"+
+	"licenseName:"+current_vrm.meta.licenseName+"<br>"+
+	"otherLicenseUrl:"+current_vrm.meta.otherLicenseUrl+"<br>"+
+	"otherPermissionUrl:"+current_vrm.meta.otherPermissionUrl+"<br>"+
+	"sexualUssageName:"+current_vrm.meta.sexualUssageName+"<br>"+
+	"violentUssageName:"+current_vrm.meta.violentUssageName+"<br>"+
+	"contactInformation:"+current_vrm.meta.contactInformation+"<br>"+
+	"reference:"+current_vrm.meta.reference+"<br>";
+
+	document.getElementById('vrm_information').innerHTML = info;
+	
+
+}
+
+
+function character_change_sub( number ){
+
+	camera_distance_set(document.getElementById('camera_range_set').value);
+
+	current_vrm.humanoid.getBoneNode( THREE.VRMSchema.HumanoidBoneName.Hips).rotation.set(
+		characters_rotation[number][0],
+		characters_rotation[number][1],
+		characters_rotation[number][2]
+	);
+
+	current_vrm.humanoid.getBoneNode( THREE.VRMSchema.HumanoidBoneName.Hips).position.set(
+		characters_position[number][0],
+		characters_position[number][1],
+		characters_position[number][2]
+	);
+
+	renderer.render(scene, camera);
+
+}
+
+
+
+
+
+function init(character_url){
+
+	// renderer
+	width   =  640;
+	height  =  640;
+	renderer = new THREE.WebGLRenderer();
+	renderer.setSize( width, height );
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setClearColor(0xffffff);
+	document.getElementById('canvas-frame').appendChild( renderer.domElement );
+
+	// camera
+	camera = new THREE.PerspectiveCamera( 30, 1, 0.1, 20.0 );
+	camera.position.set( 0.0, 1.5, 0.9 );
+
+	// camera controls
+	const controls = new THREE.OrbitControls( camera, renderer.domElement );
+	controls.screenSpacePanning = true;
+	controls.target.set( 0.0, 1.4, 0.0 );
+	controls.update();
+
+	// scene
+	scene = new THREE.Scene();
+
+	// light
+	const light = new THREE.DirectionalLight( 0xffffff );
+	light.position.set( 1.0, 1.0, 1.0 ).normalize();
+	scene.add( light );
+
+	character_load_flg_change(-1);
+	vrm_model_load(0,  character_url,  0,  3, 0  );
+	vrm_anime_check_change(character_change_sub , 0);
+
+}
+
+
+
+function blink_on( vrm ){
+
+	vrm.blendShapeProxy.setValue(THREE.VRMSchema.BlendShapePresetName.Blink,1);
+
+	setTimeout(function( vrm ) {
+		vrm.blendShapeProxy.setValue(THREE.VRMSchema.BlendShapePresetName.Blink,0);
+	}, 200, vrm);
+
+}
+
+
+function hand_set( vrm ) {
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.LeftUpperArm).rotation.z  =  Math.PI * 2 / 5;
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.RightUpperArm).rotation.z = -Math.PI * 2 / 5;
+	renderer.render(scene, camera);
+}
+
+
+function redraw_animation( vrm , x, y, z_radian, mouth_a, mouth_i, mouth_u) {
+
+	if(typeof vrm === "undefined"){
+		return;
+	}
+
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Head).rotation.z  = -z_radian * 0.75
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Chest).rotation.z = -z_radian * 0.28;
+	// z: front to rear
+
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Head).rotation.y  = -x * Math.PI * 2 / 5 * 0.5;
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Chest).rotation.y = -x * Math.PI * 2 / 5 * 0.5;
+	// y: left to right (nodding)
+
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Head).rotation.x  = -y * Math.PI * 2 / 5 * 0.75;
+	vrm.humanoid.getBoneNode(THREE.VRMSchema.HumanoidBoneName.Chest).rotation.x = -y * Math.PI * 2 / 5 * 0.28;
+	// x: head to foot
+
+	vrm.blendShapeProxy.setValue(THREE.VRMSchema.BlendShapePresetName.A, mouth_a);
+	vrm.blendShapeProxy.setValue(THREE.VRMSchema.BlendShapePresetName.I, mouth_i);
+	vrm.blendShapeProxy.setValue(THREE.VRMSchema.BlendShapePresetName.U, mouth_u);
+
+	vrm.blendShapeProxy.update();
+
+	renderer.render(scene, camera);
+}
+
+
+async function run() {
+
+	let loc = location.pathname;
+	let dir = loc.substring(0, loc.lastIndexOf('/')) +  "/js/weights/"; 
+
+// console.log(location.pathname +","+dir);
+
+	await changeFaceDetector(TINY_FACE_DETECTOR);
+	await faceapi.loadFaceLandmarkModel( dir );
+	// however,the following files should be under the site url
+	// https://xxxxxx.xxx.xxx/tiny_face_detector_model-shard1
+	// https://xxxxxx.xxx.xxx/tiny_face_detector_model-weights_manifest.json
+
+	changeInputSize(512);
+
+	const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+	const videoEl = document.getElementById("inputVideo");
+	videoEl.srcObject = stream;
+
+}
+
+
+function updateResults(){}
+
+
+async function onPlay() {
+
+	const videoEl = document.getElementById("inputVideo");
+
+	if(videoEl.paused || videoEl.ended || !isFaceDetectionModelLoaded()){
+		return setTimeout(() => onPlay())
+	}
+
+	let result = await faceapi.detectSingleFace(videoEl, getFaceDetectorOptions()).withFaceLandmarks()
+
+
+	if(result){
+
+		min  = Number(result.landmarks.positions[0]['x']);
+		max  = Number(result.landmarks.positions[16]['x']);
+
+		// landmarks
+		const canvas = document.getElementById("overlay");
+		const dims = faceapi.matchDimensions(canvas, videoEl, true)
+		const displaySize = { width: 320, height: 240 };  
+		const resizedResult = faceapi.resizeResults(result, displaySize)
+
+
+		const nose_landmark29 = result.landmarks.positions[29];
+
+		nose_x = nose_landmark29['x'];
+
+		face_width    = max - min;
+		nose_x_scale  = nose_x - (min+max)/2;
+		nose_ratio    = nose_x_scale / face_width;
+
+		let x_level =  nose_ratio * 2;
+
+
+		min  = Number(result.landmarks.positions[27]['y']);
+		max  = Number(result.landmarks.positions[8]['y']);
+
+		nose_y = nose_landmark29['y'];
+
+		face_width    = max - min;
+		nose_y_scale  = nose_y - (min + max)/2;
+		nose_ratio    = nose_y_scale / face_width;
+
+		let y_level =  nose_ratio * 1.5 + 0.5;
+
+
+		x_max = Number(result.landmarks.positions[8]['x']);
+		y_max = Number(result.landmarks.positions[8]['y']);
+
+		x_min = Number(result.landmarks.positions[30]['x']);
+		y_min = Number(result.landmarks.positions[30]['y']);
+
+		x_dif = x_max - x_min;
+		y_dif = y_max - y_min;
+
+		atan_value = Math.atan(x_dif / y_dif);  // radian
+
+
+// ----- mouth A
+
+		min = Number(result.landmarks.positions[51]['y']);
+		max = Number(result.landmarks.positions[57]['y']);
+
+		nose_y = nose_landmark29['y'];
+
+		face_width    = max - min;
+		nose_y_scale  = nose_y - (min + max)/2;
+		nose_ratio    = nose_y_scale / face_width;
+
+		let mouth_a_level  =  (1.68-(-nose_ratio*0.5))*1.2;
+
+
+// ----- mouth I
+		
+		min = Number(result.landmarks.positions[11]['x']);
+		max = Number(result.landmarks.positions[57]['x']);
+		
+		let i_0_pos1     = max+((min-max)/1.6);
+		let i_mouth_pos1 = Number(result.landmarks.positions[54]['x']);
+		
+		min = Number(result.landmarks.positions[57]['x']);
+		max = Number(result.landmarks.positions[5]['x']);
+		
+		let i_0_pos2     = max+((min-max)/1.6);
+		let i_mouth_pos2 = Number(result.landmarks.positions[48]['x']);
+
+		let mouth_i_level =  ((((i_0_pos2-i_mouth_pos2)/1.5) + ((i_mouth_pos1-i_0_pos1)/1.5) / 2 ) *0.35)-0.5;
+
+
+// ----- mouth U
+		
+		min = Number(result.landmarks.positions[11]['x']);
+		max = Number(result.landmarks.positions[57]['x']);
+		
+		let u_0_pos1     = max+((min-max)/1.55);
+		let u_mouth_pos1 = Number(result.landmarks.positions[54]['x']);
+		
+		min = Number(result.landmarks.positions[57]['x']);
+		max = Number(result.landmarks.positions[5]['x']);
+		
+		let u_0_pos2     = max+((min-max)/1.55);
+		let u_mouth_pos2 = Number(result.landmarks.positions[48]['x']);
+
+		let mouth_u_level  =  -((((i_0_pos2-i_mouth_pos2)/1.5) + ((i_mouth_pos1-i_0_pos1)/1.5) / 2 ) *0.5)+0.5;
+
+
+
+		// re_draw
+		redraw_animation(current_vrm, x_level, y_level, atan_value, mouth_a_level, mouth_i_level, mouth_u_level);
+
+		// draw
+        faceapi.draw.drawFaceLandmarks(canvas, resizedResult)
+
+	}
+
+
+	setTimeout(() => onPlay())
+
+
+}
+
+
+
+</script>
+</body>
+</html>
+

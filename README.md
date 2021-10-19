@@ -4,5 +4,5 @@
 
 
 
-You can try it at <a href="https://social-exp.site/js-webcam-vrm-avatar/">this site</a>.
+You can try it on <a href="https://social-exp.site/js-webcam-vrm-avatar/">this site</a>.
 
